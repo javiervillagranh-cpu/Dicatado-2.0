@@ -131,6 +131,9 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     return t
       .replace(/\s*\bnuevo p[aá]rrafo\b[\s,.]*/gi, '\n\n')
       .replace(/\s*\bnueva l[ií]nea\b[\s,.]*/gi, '\n')
+      // Paréntesis
+      .replace(/\s*\b(?:abre|abrir) par[eé]ntesis\b\s*/gi, ' (')
+      .replace(/\s*\b(?:cierra|cerrar) par[eé]ntesis\b\s*/gi, ') ')
       .replace(/\s*\bdos puntos\b\s*/gi, ': ')
       .replace(/\s*\bpunto\b\s*/gi, '. ')
       .replace(/\s*\bcoma\b\s*/gi, ', ')
@@ -149,9 +152,8 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
       .replace(/\bocho romano\b/gi, 'VIII')
       // Corrección de medidas (asterisco a x)
       .replace(/\*/g, 'x')
-      .replace(/(\d+)\s*por\s*(\d+)/gi, '$1 x $2');
+      .replace(/(\d)\s*por\s*(?=\d)/gi, '$1 x ');
   }
-
   var diccionarioMedico = {
     "\\bte ce\\b": "TC",
     "\\btc\\b": "TC",
