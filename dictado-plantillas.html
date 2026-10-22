@@ -61,6 +61,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   </div>
   
   <div id="status" role="status"></div>
+  <div id="prop" class="row" style="display:none"><span id="propTxt"></span><button id="propSi" type="button">Siempre</button><button id="propNo" type="button">Solo esta vez</button></div>
 
   <details>
     <summary>Plantillas y firma</summary>
@@ -95,6 +96,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
       <button id="btnDic" type="button">Guardar</button>
     </div>
     <div id="dicMsg" style="color:var(--accent); font-size:0.9rem; margin-top:8px;"></div>
+    <div id="dicLista" style="margin-top:12px;font-size:.95rem"></div>
   </details>
 </main>
 <script>
@@ -107,6 +109,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   function render(it){
     interimStr = it ? sepa(pre, it) + it : '';
     box.value = pre + interimStr + post;
+    if(!tmr) ref = pre + post;
     var c = pre.length + interimStr.length;
     box.setSelectionRange(c, c);
   }
@@ -172,14 +175,116 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     var modificado = t;
     var dicExtra = cargarDiccionarioExtra();
     
-    for (var regex in dicExtra) {
-      modificado = modificado.replace(new RegExp("\\b" + regex + "\\b", 'gi'), dicExtra[regex]);
-    }
+    dicExtra = diccionarioTotal();
+    Object.keys(dicExtra).forEach(function(k){
+      modificado = modificado.replace(new RegExp("(?<![" + L + "])" + esc(k) + "(?![" + L + "])", 'gi'), function(){ return dicExtra[k]; });
+    });
     for (var regex in diccionarioMedico) {
       modificado = modificado.replace(new RegExp(regex, 'gi'), diccionarioMedico[regex]);
     }
-    return modificado;
+    return aproximar(modificado);
   }
+
+  // ---------- Diccionario: compartido, aproximado y aprendizaje ----------
+  var L = 'A-Za-z0-9áéíóúüñÁÉÍÓÚÜÑ';
+  var RE_W = new RegExp('^([^' + L + ']*)([' + L + ']*)([^' + L + ']*)$');
+  var compartido = {}, ref = '', tmr = null, prop = null;
+  function guardarDic(d){ try{ localStorage.setItem('dicExtra', JSON.stringify(d)); }catch(e){} }
+  function diccionarioTotal(){
+    var d = {}, p = cargarDiccionarioExtra();
+    Object.keys(compartido).forEach(function(k){ if(typeof compartido[k] === 'string') d[k] = compartido[k]; });
+    Object.keys(p).forEach(function(k){ d[k] = p[k]; });
+    return d;
+  }
+  function lev(a, b){
+    var m = a.length, n = b.length, d = [], i, j, p, t;
+    for(j = 0; j <= n; j++) d[j] = j;
+    for(i = 1; i <= m; i++){
+      p = d[0]; d[0] = i;
+      for(j = 1; j <= n; j++){ t = d[j]; d[j] = Math.min(d[j] + 1, d[j-1] + 1, p + (a[i-1] === b[j-1] ? 0 : 1)); p = t; }
+    }
+    return d[n];
+  }
+  function mejor(c, objetivos, unir){
+    if(c.length < 6) return null;
+    var nc = norm(c), res = null, md = 99;
+    objetivos.forEach(function(o){
+      var no = norm(o);
+      if(nc === no){ if(unir || c.toLowerCase() !== o.toLowerCase()){ res = o; md = 0; } return; }
+      if(nc[0] !== no[0] || nc.indexOf(no) === 0 || no.indexOf(nc) === 0) return;
+      var d = lev(nc, no);
+      if(d <= (no.length >= 9 ? 2 : 1) && d < md){ md = d; res = o; }
+    });
+    return res;
+  }
+  // Corrige palabras muy parecidas a términos de tu diccionario (también palabras partidas en dos)
+  function aproximar(t){
+    var d = diccionarioTotal(), objetivos = [];
+    Object.keys(d).forEach(function(k){
+      var v = d[k]; if(/^[A-Za-záéíóúüñÁÉÍÓÚÜÑ]{7,}$/.test(v) && objetivos.indexOf(v) < 0) objetivos.push(v);
+    });
+    if(!objetivos.length) return t;
+    var p = t.split(/(\s+)/), out = [], i = 0;
+    while(i < p.length){
+      var w1 = RE_W.exec(p[i]);
+      if(w1 && w1[2]){
+        var w2 = (i + 2 < p.length && /^ +$/.test(p[i+1])) ? RE_W.exec(p[i+2]) : null;
+        if(w2 && w2[2] && !w1[3] && !w2[1]){
+          var b2 = mejor(w1[2] + w2[2], objetivos, true);
+          if(b2){ out.push(w1[1] + b2 + w2[3]); i += 3; continue; }
+        }
+        var b1 = mejor(w1[2], objetivos);
+        out.push(b1 ? w1[1] + b1 + w1[3] : p[i]);
+      } else out.push(p[i]);
+      i++;
+    }
+    return out.join('');
+  }
+  function dicRender(){
+    var cont = document.getElementById('dicLista'), d = cargarDiccionarioExtra(), ks = Object.keys(d);
+    cont.innerHTML = '';
+    if(!ks.length) cont.textContent = 'Aún no hay términos guardados.';
+    ks.forEach(function(k){
+      var r = document.createElement('div'); r.className = 'dic-row'; r.style.alignItems = 'center';
+      var sp = document.createElement('span'); sp.textContent = '«' + k + '» → «' + d[k] + '»'; sp.style.flex = '1';
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = 'Borrar'; b.style.padding = '4px 12px';
+      b.addEventListener('click', function(){ var x = cargarDiccionarioExtra(); delete x[k]; guardarDic(x); dicRender(); });
+      r.appendChild(sp); r.appendChild(b); cont.appendChild(r);
+    });
+    var nc = Object.keys(compartido).length;
+    if(nc){ var h = document.createElement('p'); h.className = 'hint'; h.style.marginTop = '10px'; h.textContent = 'Diccionario compartido cargado: ' + nc + ' términos.'; cont.appendChild(h); }
+  }
+  try{
+    fetch('diccionario.json', {cache: 'no-cache'}).then(function(r){ return r.ok ? r.json() : {}; })
+      .then(function(d){ if(d && typeof d === 'object') compartido = d; dicRender(); }).catch(function(){});
+  }catch(e){}
+  dicRender();
+
+  // Aprender de tus correcciones: solo propone, y solo si parece un error de reconocimiento
+  var propBox = document.getElementById('prop'), propTxt = document.getElementById('propTxt');
+  function quitarP(w){ var m = RE_W.exec(w); return m ? m[2] : ''; }
+  function palabras(x){ return x.split(/\s+/).filter(Boolean); }
+  function detectar(){
+    tmr = null;
+    var a = palabras(ref), b = palabras(box.value);
+    ref = box.value;
+    var i = 0; while(i < a.length && i < b.length && a[i] === b[i]) i++;
+    var j = 0; while(j < a.length - i && j < b.length - i && a[a.length-1-j] === b[b.length-1-j]) j++;
+    var A = a.slice(i, a.length - j), B = b.slice(i, b.length - j);
+    if(A.length < 1 || A.length > 2 || B.length !== 1) return;
+    var viejo = A.map(quitarP).join(' ').trim().toLowerCase(), nuevo = quitarP(B[0]);
+    if(!viejo || !nuevo || /\d/.test(viejo + nuevo) || cargarDiccionarioExtra()[viejo]) return;
+    var nv = norm(viejo.replace(/ /g, '')), nn = norm(nuevo);
+    if(nv === nn || nv[0] !== nn[0] || lev(nv, nn) / Math.max(nv.length, nn.length) > 0.4) return;
+    prop = {v: viejo, n: nuevo};
+    propTxt.textContent = '¿Cambiar siempre «' + viejo + '» por «' + nuevo + '»?';
+    propBox.style.display = 'flex';
+  }
+  document.getElementById('propSi').addEventListener('click', function(){
+    if(prop){ var d = cargarDiccionarioExtra(); d[prop.v] = prop.n; guardarDic(d); dicRender(); st.textContent = 'Guardado en el diccionario.'; }
+    prop = null; propBox.style.display = 'none';
+  });
+  document.getElementById('propNo').addEventListener('click', function(){ prop = null; propBox.style.display = 'none'; });
 
   document.getElementById('btnDic').addEventListener('click', function(){
     var inVal = document.getElementById('dicIn').value.trim();
@@ -188,6 +293,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
       var dicExtra = cargarDiccionarioExtra();
       dicExtra[inVal] = outVal;
       localStorage.setItem('dicExtra', JSON.stringify(dicExtra));
+      dicRender();
       document.getElementById('dicIn').value = '';
       document.getElementById('dicOut').value = '';
       var msg = document.getElementById('dicMsg');
@@ -306,7 +412,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   });
 
   document.getElementById('plExp').addEventListener('click', function(){
-    var blob = new Blob([JSON.stringify({plantillas: plantillas, firma: firma}, null, 2)], {type: 'application/json'});
+    var blob = new Blob([JSON.stringify({plantillas: plantillas, firma: firma, diccionario: cargarDiccionarioExtra()}, null, 2)], {type: 'application/json'});
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'plantillas-dictado.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -328,8 +434,14 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
           }
         });
         if(!firma && typeof d.firma === 'string' && d.firma){ firma = d.firma; firmaBox.value = firma; escribir('firma', firma); }
+        var dd = d.diccionario, nd = 0;
+        if(dd && typeof dd === 'object'){
+          var cur = cargarDiccionarioExtra();
+          Object.keys(dd).forEach(function(k){ if(typeof dd[k] === 'string'){ cur[k] = dd[k]; nd++; } });
+          guardarDic(cur); dicRender();
+        }
         escribir('plantillas', plantillas); refrescar();
-        aviso('Importadas ' + c + ' plantillas.');
+        aviso('Importadas ' + c + ' plantillas y ' + nd + ' términos del diccionario.');
       }catch(e){ aviso('El archivo no es válido.'); }
       plFile.value = '';
     };
@@ -427,10 +539,10 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   }
 
   btn.addEventListener('click', function(){ activo ? parar() : iniciar(); });
-  box.addEventListener('input', function(){ interimStr = ''; pre = box.value.slice(0, box.selectionStart); post = box.value.slice(box.selectionEnd); ultimoPre = pre; });
+  box.addEventListener('input', function(){ interimStr = ''; pre = box.value.slice(0, box.selectionStart); post = box.value.slice(box.selectionEnd); ultimoPre = pre; if(tmr) clearTimeout(tmr); tmr = setTimeout(detectar, 1200); });
   ['click', 'keyup', 'mouseup'].forEach(function(ev){ box.addEventListener(ev, sync); });
   lang.addEventListener('change', function(){ if(activo){ parar(); iniciar(); } });
-  document.getElementById('borrar').addEventListener('click', function(){ ultimoPre = box.value; box.value=''; pre=''; post=''; interimStr=''; });
+  document.getElementById('borrar').addEventListener('click', function(){ ultimoPre = box.value; ref = ''; box.value=''; pre=''; post=''; interimStr=''; });
   
   document.getElementById('copiar').addEventListener('click', function(){
     var textoPlano = box.value;
