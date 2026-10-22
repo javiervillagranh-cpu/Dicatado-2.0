@@ -81,6 +81,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     <div class="dic-row">
       <button id="firmaSave" type="button">Guardar firma</button>
       <button id="plExp" type="button">Exportar</button>
+      <button id="plExpC" type="button">Exportar para compartir</button>
       <button id="plImp" type="button">Importar</button>
       <input type="file" id="plFile" accept=".json,application/json" style="display:none">
     </div>
@@ -334,6 +335,7 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   ];
   function leer(k, def){ try{ var v = localStorage.getItem(k); return v === null ? def : JSON.parse(v); }catch(e){ return def; } }
   function escribir(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  var compartidas = [];
   var plantillas = leer('plantillas', semillas);
   if(!Array.isArray(plantillas)) plantillas = [];
   var firma = leer('firma', '');
@@ -354,33 +356,49 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     var k = -1; plantillas.forEach(function(p, i){ if(norm(p.n) === norm(nombre)) k = i; });
     return k;
   }
+  // Lista que se muestra: primero las personales y luego las compartidas (si una personal tiene el mismo nombre, gana)
+  function listaTotal(){
+    var r = plantillas.map(function(p){ return {n: p.n, t: p.t, c: false}; });
+    compartidas.forEach(function(p){ if(indiceDe(p.n) < 0) r.push({n: p.n, t: p.t, c: true}); });
+    return r;
+  }
   function refrescar(sel){
     plSel.innerHTML = '';
-    plantillas.forEach(function(p, i){
-      var o = document.createElement('option'); o.value = i; o.textContent = p.n; plSel.appendChild(o);
+    listaTotal().forEach(function(p, i){
+      var o = document.createElement('option'); o.value = i; o.textContent = p.n + (p.c ? ' (compartida)' : ''); plSel.appendChild(o);
     });
     if(sel !== undefined) plSel.value = sel;
   }
   refrescar();
+  try{
+    fetch('plantillas.json', {cache: 'no-cache'}).then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(d){
+        if(!Array.isArray(d)) return;
+        compartidas = d.filter(function(p){ return p && typeof p.n === 'string' && p.n.trim() && (typeof p.t === 'string' || Array.isArray(p.t)); })
+          .map(function(p){ return {n: p.n, t: Array.isArray(p.t) ? p.t.join('\n') : p.t}; });
+        var v = plSel.value; refrescar(); if(v !== '') plSel.value = v;
+      }).catch(function(){});
+  }catch(e){}
 
   // Reemplaza «plantilla <nombre>» por el texto de la plantilla (sin pasar por comandos/diccionario)
   function procesar(t){
     var base = function(x){ return comandos(corregirTerminos(x)); };
-    var nombres = plantillas.map(function(p){ return norm(p.n); }).filter(Boolean)
+    var lista = listaTotal();
+    var nombres = lista.map(function(p){ return norm(p.n); }).filter(Boolean)
       .sort(function(a, b){ return b.length - a.length; });
     if(!nombres.length) return base(t);
     var re = new RegExp('\\b(?:insertar )?plantilla (' + nombres.map(esc).join('|') + ')(?![a-z0-9ñ])', 'g');
     var n = norm(t), out = '', ult = 0, m;
     while((m = re.exec(n))){
-      var k = indiceDe(m[1]);
-      out += base(t.slice(ult, m.index)) + '\n\n' + expandir(plantillas[k].t) + '\n\n';
+      var q = lista.filter(function(x){ return norm(x.n) === m[1]; })[0];
+      out += base(t.slice(ult, m.index)) + '\n\n' + expandir(q.t) + '\n\n';
       ult = m.index + m[0].length;
     }
     return out + base(t.slice(ult));
   }
 
   document.getElementById('plIns').addEventListener('click', function(){
-    var p = plantillas[plSel.value]; if(!p) return;
+    var p = listaTotal()[plSel.value]; if(!p) return;
     sync(); ultimoPre = pre;
     pre += (pre && !/\n\s*$/.test(pre) ? '\n\n' : '') + expandir(p.t) + '\n\n';
     render('');
@@ -388,9 +406,10 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
   });
 
   document.getElementById('plDel').addEventListener('click', function(){
-    var p = plantillas[plSel.value]; if(!p) return;
+    var p = listaTotal()[plSel.value]; if(!p) return;
+    if(p.c){ aviso('Las plantillas compartidas solo se pueden quitar editando plantillas.json en GitHub.'); return; }
     if(!confirm('¿Eliminar la plantilla «' + p.n + '»?')) return;
-    plantillas.splice(plSel.value, 1);
+    plantillas.splice(indiceDe(p.n), 1);
     escribir('plantillas', plantillas); refrescar();
     aviso('Plantilla eliminada.');
   });
@@ -417,6 +436,16 @@ summary{cursor:pointer; font-weight:600; color:var(--accent);}
     a.href = URL.createObjectURL(blob); a.download = 'plantillas-dictado.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+  });
+
+  document.getElementById('plExpC').addEventListener('click', function(){
+    var datos = plantillas.map(function(p){ return {n: p.n, t: p.t.split('\n')}; });
+    var blob = new Blob([JSON.stringify(datos, null, 2)], {type: 'application/json'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'plantillas.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    aviso('Descargado plantillas.json. Súbelo a tu repositorio de GitHub.');
   });
 
   document.getElementById('plImp').addEventListener('click', function(){ plFile.click(); });
