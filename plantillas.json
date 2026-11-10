@@ -89,12 +89,7 @@
       "Examen sin hallazgos de significado patológico.",
       "",
       "",
-      "{firma}"
-     ]
-    },
-    {
-      "n": "Rx Tórax",
-      "t": "Radiografía de tórax AP y lateral\n\nAntecedente: \n\nHallazgos:\nPulmones adecuadamente insuflados.\nNo se observan condensaciones.\nContornos hiliares y mediastínicos sin alteraciones.\nNo se visualiza derrame pleural ni neumotórax.\nSilueta cardiaca de tamaño normal.\n\n{firma}"
-  ]
-  },
+      "{Firma}"
+    ]
+  }
 ]
